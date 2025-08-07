@@ -94,7 +94,7 @@ export const FinancialRecordsProvider = ({
 
   const deleteRecord = async (id: string) => {
     const response = await fetch(
-      `http://localhost:3001/financial-records/${id}`,
+      `http://localhost:5173/financial-records/${id}`,
       {
         method: "DELETE",
       }
