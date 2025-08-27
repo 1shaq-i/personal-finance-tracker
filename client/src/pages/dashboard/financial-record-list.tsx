@@ -3,27 +3,53 @@ import {
   type FinancialRecord,
   useFinancialRecords,
 } from "../../contexts/financial-record-context";
-import { useTable, type Column, type CellProps, type Row } from "react-table";
 
-interface EditableCellProps extends CellProps<FinancialRecord> {
-  updateRecord: (rowIndex: number, columnId: string, value: any) => void;
-  editable: boolean;
+import {
+  useReactTable,
+  getCoreRowModel,
+  flexRender,
+  type ColumnDef,
+  type CellContext,
+} from "@tanstack/react-table";
+
+/** ---- Module augmentation for column/table meta (v8 pattern) ---- */
+declare module "@tanstack/react-table" {
+  // Per-column extras
+  interface ColumnMeta<TData, TValue> {
+    editable?: boolean;
+  }
+  // Table-level helpers you want available inside cell renderers
+  interface TableMeta<TData> {
+    updateRecord: (rowIndex: number, columnId: string, value: unknown) => void;
+  }
 }
 
-const EditableCell: React.FC<EditableCellProps> = ({
-  value: initialValue,
+/** ---- Editable cell (v8 Cell renderer) ---- */
+function EditableCell<TData, TValue>({
+  getValue,
   row,
   column,
-  updateRecord,
-  editable,
-}) => {
+  table,
+}: CellContext<TData, TValue>) {
+  const initialValue = getValue();
   const [isEditing, setIsEditing] = useState(false);
-  const [value, setValue] = useState(initialValue);
+  const [value, setValue] = useState<unknown>(initialValue);
+
+  const editable = column.columnDef.meta?.editable ?? false;
 
   const onBlur = () => {
     setIsEditing(false);
-    updateRecord(row.index, column.id, value);
+    table.options.meta?.updateRecord(row.index, column.id, value);
   };
+
+  const display =
+    value == null
+      ? ""
+      : typeof value === "string"
+      ? value
+      : typeof value === "number"
+      ? String(value)
+      : String(value);
 
   return (
     <div
@@ -32,90 +58,74 @@ const EditableCell: React.FC<EditableCellProps> = ({
     >
       {isEditing ? (
         <input
-          value={value}
+          value={
+            typeof value === "string" || typeof value === "number"
+              ? String(value)
+              : ""
+          }
           onChange={(e) => setValue(e.target.value)}
           autoFocus
           onBlur={onBlur}
           style={{ width: "100%" }}
         />
-      ) : typeof value === "string" ? (
-        value
       ) : (
-        value.toString()
+        display
       )}
     </div>
   );
-};
+}
 
+/** ---- Main component ---- */
 export const FinancialRecordList = () => {
   const { records, updateRecord, deleteRecord } = useFinancialRecords();
 
-  const updateCellRecord = (rowIndex: number, columnId: string, value: any) => {
-    const id = records[rowIndex]?._id;
-    updateRecord(id ?? "", { ...records[rowIndex], [columnId]: value });
+  const updateCellRecord = (
+    rowIndex: number,
+    columnId: string,
+    value: unknown
+  ) => {
+    const id = records[rowIndex]?._id ?? "";
+    const current = records[rowIndex];
+    if (!current) return;
+    updateRecord(id, { ...current, [columnId]: value });
   };
 
-  const columns: Array<Column<FinancialRecord>> = useMemo(
+  const columns: ColumnDef<FinancialRecord>[] = useMemo(
     () => [
       {
-        Header: "Description",
-        accessor: "description",
-        Cell: (props) => (
-          <EditableCell
-            {...props}
-            updateRecord={updateCellRecord}
-            editable={true}
-          />
-        ),
+        header: "Description",
+        accessorKey: "description",
+        meta: { editable: true },
+        cell: (ctx) => <EditableCell {...ctx} />,
       },
       {
-        Header: "Amount",
-        accessor: "amount",
-        Cell: (props) => (
-          <EditableCell
-            {...props}
-            updateRecord={updateCellRecord}
-            editable={true}
-          />
-        ),
+        header: "Amount",
+        accessorKey: "amount",
+        meta: { editable: true },
+        cell: (ctx) => <EditableCell {...ctx} />,
       },
       {
-        Header: "Category",
-        accessor: "category",
-        Cell: (props) => (
-          <EditableCell
-            {...props}
-            updateRecord={updateCellRecord}
-            editable={true}
-          />
-        ),
+        header: "Category",
+        accessorKey: "category",
+        meta: { editable: true },
+        cell: (ctx) => <EditableCell {...ctx} />,
       },
       {
-        Header: "Payment Method",
-        accessor: "paymentMethod",
-        Cell: (props) => (
-          <EditableCell
-            {...props}
-            updateRecord={updateCellRecord}
-            editable={true}
-          />
-        ),
+        header: "Payment Method",
+        accessorKey: "paymentMethod",
+        meta: { editable: true },
+        cell: (ctx) => <EditableCell {...ctx} />,
       },
       {
-        Header: "Date",
-        accessor: "date",
-        Cell: (props) => (
-          <EditableCell
-            {...props}
-            updateRecord={updateCellRecord}
-            editable={false}
-          />
-        ),
+        header: "Date",
+        accessorKey: "date",
+        meta: { editable: false },
+        cell: (ctx) => <EditableCell {...ctx} />,
       },
       {
-        Header: "Delete",
         id: "delete",
-        Cell: ({ row }) => (
+        header: "Delete",
+        cell: ({ row }) => (
           <button
             onClick={() => deleteRecord(row.original._id ?? "")}
             className="button"
@@ -125,37 +135,48 @@ export const FinancialRecordList = () => {
         ),
       },
     ],
-    [records]
+    [deleteRecord, records]
   );
 
-  const { getTableProps, getTableBodyProps, headerGroups, rows, prepareRow } =
-    useTable({
-      columns,
-      data: records,
-    });
+  const table = useReactTable({
+    data: records,
+    columns,
+    getCoreRowModel: getCoreRowModel(),
+    meta: {
+      updateRecord: updateCellRecord,
+    },
+  });
+
   return (
     <div className="table-container">
-      <table {...getTableProps()} className="table">
+      <table className="table">
         <thead>
-          {headerGroups.map((hg) => (
-            <tr {...hg.getHeaderGroupProps()}>
-              {hg.headers.map((column) => (
-                <th {...column.getHeaderProps()}> {column.render("Header")}</th>
+          {table.getHeaderGroups().map((hg) => (
+            <tr key={hg.id}>
+              {hg.headers.map((header) => (
+                <th key={header.id}>
+                  {header.isPlaceholder
+                    ? null
+                    : flexRender(
+                        header.column.columnDef.header,
+                        header.getContext()
+                      )}
+                </th>
               ))}
             </tr>
           ))}
         </thead>
-        <tbody {...getTableBodyProps()}>
-          {rows.map((row, idx) => {
-            prepareRow(row);
-            return (
-              <tr {...row.getRowProps()}>
-                {row.cells.map((cell) => (
-                  <td {...cell.getCellProps()}> {cell.render("Cell")} </td>
-                ))}
-              </tr>
-            );
-          })}
+
+        <tbody>
+          {table.getRowModel().rows.map((row) => (
+            <tr key={row.id}>
+              {row.getVisibleCells().map((cell) => (
+                <td key={cell.id}>
+                  {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                </td>
+              ))}
+            </tr>
+          ))}
         </tbody>
       </table>
     </div>
