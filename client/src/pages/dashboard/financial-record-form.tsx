@@ -24,7 +24,6 @@ export const FinancialRecordForm = () => {
     };
 
     addRecord(newRecord);
-
     setDescription("");
     setAmount("");
     setCategory("");
